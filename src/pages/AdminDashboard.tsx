@@ -12,8 +12,9 @@ import { toast } from "sonner";
 import { 
   Crown, LogOut, Plus, Package, ShoppingBag, Trash2, 
   Edit2, Loader2, RefreshCw, Upload, X, Ticket, Send, MessageCircle, Bell, Tag,
-  TrendingUp, BarChart3, Calendar, DollarSign, FolderOpen
+  TrendingUp, BarChart3, Calendar, DollarSign, FolderOpen, ZoomIn
 } from "lucide-react";
+import { PhotoViewerModal } from "@/components/PhotoViewerModal";
 import { cn } from "@/lib/utils";
 import {
   Dialog,
@@ -22,6 +23,7 @@ import {
   DialogHeader,
   DialogTitle,
   DialogTrigger,
+  DialogFooter,
 } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { AttributesManager } from "@/components/admin/AttributesManager";
@@ -124,6 +126,7 @@ interface ContactSubmission {
   phone: string;
   subject: string;
   description: string;
+  photos: string[] | null;
   is_banned: boolean;
   created_at: string;
   updated_at: string;
@@ -186,6 +189,13 @@ export default function AdminDashboard() {
     reason: '',
     is_active: true,
   });
+
+  // Photo viewer state
+  const [photoViewerOpen, setPhotoViewerOpen] = useState(false);
+  const [currentPhotoUrl, setCurrentPhotoUrl] = useState('');
+
+  // Delete confirmation state
+  const [showDeleteAllDialog, setShowDeleteAllDialog] = useState(false);
 
   // Check admin login on mount
   useEffect(() => {
@@ -265,6 +275,31 @@ export default function AdminDashboard() {
       return data as ContactSubmission[];
     },
   });
+
+  // Delete all contact submissions
+  const handleDeleteAllContactSubmissions = async () => {
+    console.log('Delete all button clicked');
+    if (!contactSubmissions || contactSubmissions.length === 0) return;
+    
+    try {
+      // Show confirmation dialog
+      console.log('Showing delete all confirmation dialog');
+      setShowDeleteAllDialog(true);
+    } catch (error) {
+      console.error('Error preparing to delete all contact submissions:', error);
+      toast.error('Failed to prepare deletion');
+    }
+  };
+
+  // Confirm delete all contact submissions
+  const confirmDeleteAllContactSubmissions = () => {
+    deleteAllContactSubmissionsMutation.mutate();
+  };
+
+  // Delete individual contact submission
+  const handleDeleteContactSubmission = (id: string) => {
+    deleteContactSubmissionMutation.mutate(id);
+  };
 
   // Fetch categories
   const { data: categories, isLoading: categoriesLoading, refetch: refetchCategories } = useQuery({
@@ -705,6 +740,45 @@ export default function AdminDashboard() {
     onError: (error: any) => {
       console.error('Error deleting order:', error);
       toast.error('Deletion failed. Please try again.');
+    },
+  });
+
+  // Delete all contact submissions mutation (UI only)
+  const deleteAllContactSubmissionsMutation = useMutation({
+    mutationFn: async () => {
+      // UI-only deletion - don't actually delete from database
+      // This is intentional per requirements
+      return Promise.resolve();
+    },
+    onSuccess: () => {
+      // Optimistically clear the UI
+      queryClient.setQueryData<ContactSubmission[] | undefined>(['admin-contact-submissions'], []);
+      toast.success('All contact submissions removed from view!');
+      setShowDeleteAllDialog(false);
+    },
+    onError: (error: any) => {
+      console.error('Error clearing contact submissions from UI:', error);
+      toast.error('Failed to clear contact submissions from view');
+      setShowDeleteAllDialog(false);
+    },
+  });
+
+  // Delete individual contact submission mutation
+  const deleteContactSubmissionMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase
+        .from('contact_submissions')
+        .delete()
+        .eq('id', id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin-contact-submissions'] });
+      toast.success('Contact submission deleted successfully!');
+    },
+    onError: (error: any) => {
+      console.error('Error deleting contact submission:', error);
+      toast.error('Failed to delete contact submission');
     },
   });
 
@@ -1827,6 +1901,13 @@ export default function AdminDashboard() {
             <div className="flex items-center justify-between">
               <h2 className="font-display text-2xl font-bold">Contact Submissions</h2>
               <div className="flex gap-2">
+                <Button 
+                  variant="destructive" 
+                  onClick={handleDeleteAllContactSubmissions}
+                  disabled={!contactSubmissions || contactSubmissions.length === 0}
+                >
+                  Delete All
+                </Button>
                 <Button variant="ghost" size="icon" onClick={() => refetchContactSubmissions()}>
                   <RefreshCw className="w-4 h-4" />
                 </Button>
@@ -1869,7 +1950,41 @@ export default function AdminDashboard() {
                             <span className="font-medium">Submitted:</span> {new Date(submission.created_at).toLocaleString()}
                           </div>
                         </div>
+                        {submission.photos && submission.photos.length > 0 && (
+                          <div className="mt-3">
+                            <span className="font-medium block mb-2">Photos:</span>
+                            <div className="grid grid-cols-3 gap-2">
+                              {submission.photos.map((photoUrl, index) => (
+                                <div 
+                                  key={index} 
+                                  className="relative group cursor-pointer"
+                                  onClick={() => {
+                                    setCurrentPhotoUrl(photoUrl);
+                                    setPhotoViewerOpen(true);
+                                  }}
+                                >
+                                  <img 
+                                    src={photoUrl} 
+                                    alt={`Photo ${index + 1}`} 
+                                    className="w-full h-20 object-cover rounded-md border border-border hover:opacity-80 transition-opacity"
+                                  />
+                                  <div className="absolute inset-0 bg-black/20 rounded-md flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                                    <ZoomIn className="w-5 h-5 text-white" />
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
                       </div>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="text-destructive hover:text-destructive"
+                        onClick={() => handleDeleteContactSubmission(submission.id)}
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </Button>
                     </div>
                   </div>
                 ))}
@@ -2230,6 +2345,32 @@ export default function AdminDashboard() {
           </TabsContent>
         </Tabs>
       </main>
+      {photoViewerOpen && (
+        <PhotoViewerModal 
+          photoUrl={currentPhotoUrl} 
+          onClose={() => setPhotoViewerOpen(false)} 
+        />
+      )}
+      
+      {/* Delete All Confirmation Dialog */}
+      <Dialog open={showDeleteAllDialog} onOpenChange={setShowDeleteAllDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Confirm Deletion</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete all contact submissions? This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowDeleteAllDialog(false)}>
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={confirmDeleteAllContactSubmissions}>
+              Delete All
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

@@ -1,11 +1,11 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
-import { Loader2 } from "lucide-react";
+import { Loader2, X, Upload } from "lucide-react";
 
 interface ContactFormProps {
   className?: string;
@@ -21,6 +21,12 @@ export const ContactForm = ({ className = "" }: ContactFormProps) => {
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [photos, setPhotos] = useState<File[]>([]);
+  const [photoPreviews, setPhotoPreviews] = useState<string[]>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const MIN_PHOTOS = 0;
+  const MAX_PHOTOS = 6;
 
   const validateForm = () => {
     const newErrors: Record<string, string> = {};
@@ -51,6 +57,10 @@ export const ContactForm = ({ className = "" }: ContactFormProps) => {
     
     if (!formData.description.trim()) {
       newErrors.description = "Description is required";
+    }
+    
+    if (photos.length < MIN_PHOTOS || photos.length > MAX_PHOTOS) {
+      newErrors.photos = `Please upload between ${MIN_PHOTOS} and ${MAX_PHOTOS} photos`;
     }
     
     setErrors(newErrors);
@@ -102,6 +112,79 @@ export const ContactForm = ({ className = "" }: ContactFormProps) => {
     return data && data.length > 0;
   };
 
+  const handlePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files) return;
+
+    const newFiles = Array.from(files);
+    const totalFiles = photos.length + newFiles.length;
+
+    if (totalFiles > MAX_PHOTOS) {
+      toast.error(`You can upload a maximum of ${MAX_PHOTOS} photos`);
+      return;
+    }
+
+    // Validate file types
+    const validFiles = newFiles.filter(file => 
+      file.type === 'image/jpeg' || 
+      file.type === 'image/png' || 
+      file.type === 'image/webp'
+    );
+
+    if (validFiles.length !== newFiles.length) {
+      toast.error('Only JPEG, PNG, and WebP images are allowed');
+      return;
+    }
+
+    // Validate file sizes (5MB max)
+    const oversizedFiles = newFiles.filter(file => file.size > 5 * 1024 * 1024);
+    if (oversizedFiles.length > 0) {
+      toast.error('Each image must be less than 5MB');
+      return;
+    }
+
+    setPhotos(prev => [...prev, ...newFiles]);
+    
+    // Create previews
+    const newPreviews = newFiles.map(file => URL.createObjectURL(file));
+    setPhotoPreviews(prev => [...prev, ...newPreviews]);
+
+    // Clear the input
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
+
+  const removePhoto = (index: number) => {
+    setPhotos(prev => prev.filter((_, i) => i !== index));
+    setPhotoPreviews(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const uploadPhotos = async () => {
+    const photoUrls: string[] = [];
+    
+    for (const photo of photos) {
+      const fileExt = photo.name.split('.').pop();
+      const fileName = `${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExt}`;
+      
+      const { error: uploadError } = await supabase.storage
+        .from('contact-photos')
+        .upload(fileName, photo);
+        
+      if (uploadError) {
+        throw uploadError;
+      }
+      
+      const { data: { publicUrl } } = supabase.storage
+        .from('contact-photos')
+        .getPublicUrl(fileName);
+        
+      photoUrls.push(publicUrl);
+    }
+    
+    return photoUrls;
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
@@ -119,6 +202,12 @@ export const ContactForm = ({ className = "" }: ContactFormProps) => {
         toast.error("You are not allowed to submit this form");
         setIsSubmitting(false);
         return;
+      }
+      
+      // Upload photos if any
+      let photoUrls: string[] = [];
+      if (photos.length > 0) {
+        photoUrls = await uploadPhotos();
       }
       
       // Normalize phone number for storage
@@ -141,6 +230,7 @@ export const ContactForm = ({ className = "" }: ContactFormProps) => {
           phone: normalizedPhone,
           subject: formData.subject,
           description: formData.description,
+          photos: photoUrls,
           is_banned: isBanned, // This should always be false since we're preventing banned users from submitting
         },
       ]);
@@ -155,6 +245,8 @@ export const ContactForm = ({ className = "" }: ContactFormProps) => {
         subject: "",
         description: "",
       });
+      setPhotos([]);
+      setPhotoPreviews([]);
     } catch (error) {
       console.error("Error submitting form:", error);
       toast.error("Failed to send your message. Please try again.");
@@ -230,6 +322,62 @@ export const ContactForm = ({ className = "" }: ContactFormProps) => {
             className={errors.description ? "border-destructive" : ""}
           />
           {errors.description && <p className="text-destructive text-sm mt-1">{errors.description}</p>}
+        </div>
+        
+        {/* Photo Upload Section */}
+        <div>
+          <Label>Photos (Optional, up to 6)</Label>
+          <div className="mt-2 space-y-4">
+            {/* Preview uploaded photos */}
+            {photoPreviews.length > 0 && (
+              <div className="grid grid-cols-3 gap-2">
+                {photoPreviews.map((preview, index) => (
+                  <div key={index} className="relative group">
+                    <img 
+                      src={preview} 
+                      alt={`Preview ${index + 1}`} 
+                      className="w-full h-24 object-cover rounded-md border border-border"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => removePhoto(index)}
+                      className="absolute -top-2 -right-2 bg-destructive rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity"
+                    >
+                      <X className="w-4 h-4 text-white" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+            
+            {/* Upload button */}
+            <div>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                multiple
+                onChange={handlePhotoChange}
+                className="hidden"
+              />
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={photos.length >= MAX_PHOTOS}
+                className="w-full"
+              >
+                <Upload className="w-4 h-4 mr-2" />
+                {photos.length > 0 
+                  ? `Add Photos (${photos.length}/${MAX_PHOTOS})` 
+                  : 'Upload Photos'}
+              </Button>
+              <p className="text-sm text-muted-foreground mt-1">
+                Upload up to {MAX_PHOTOS} photos (JPEG, PNG, or WebP, max 5MB each)
+              </p>
+              {errors.photos && <p className="text-destructive text-sm mt-1">{errors.photos}</p>}
+            </div>
+          </div>
         </div>
         
         <Button 
