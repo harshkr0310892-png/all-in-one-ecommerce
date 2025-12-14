@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import { ShoppingBag, Eye } from "lucide-react";
+import { ShoppingBag, Eye, Share2, Crown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useCartStore } from "@/store/cartStore";
 import { cn } from "@/lib/utils";
@@ -27,7 +27,8 @@ export function ProductCard({
   images,
   stock_status,
   stock_quantity,
-  index = 0 
+  index = 0,
+  cash_on_delivery
 }: ProductCardProps) {
   const addItem = useCartStore((state) => state.addItem);
   const discountedPrice = price * (1 - discount_percentage / 100);
@@ -50,53 +51,72 @@ export function ProductCard({
     toast.success(`${name} added to cart!`);
   };
 
+  const handleShare = async (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    
+    const productUrl = `${window.location.origin}/product/${id}`;
+    
+    if (navigator.share) {
+      try {
+        await navigator.share({
+          title: name,
+          text: `Check out this amazing product: ${name}`,
+          url: productUrl,
+        });
+      } catch (err) {
+        console.log('Error sharing:', err);
+        copyToClipboard(productUrl);
+      }
+    } else {
+      copyToClipboard(productUrl);
+    }
+  };
+
+  const copyToClipboard = (text: string) => {
+    navigator.clipboard.writeText(text).then(() => {
+      toast.success('Link copied to clipboard!');
+    }).catch(err => {
+      console.error('Failed to copy: ', err);
+      toast.error('Failed to copy link');
+    });
+  };
+
   const getStockDisplay = () => {
-    if (isSoldOut) return "Out of Stock";
-    if (isLowStock && stock_quantity) return `Only ${stock_quantity} left`;
-    if (stock_quantity && stock_quantity > 0) return `${stock_quantity} in stock`;
+    if (isSoldOut) return "Sold Out";
+    if (isLowStock) return "Low Stock";
     return "In Stock";
   };
 
   return (
-    <div 
-      className={cn(
-        "group relative bg-card rounded-xl overflow-hidden border border-border/50",
-        "transition-all duration-500 hover:border-primary/50 hover:royal-shadow-lg",
-        "opacity-0 animate-fade-in",
-        `stagger-${(index % 5) + 1}`
-      )}
-    >
-      {/* Image Container */}
-      <div className="relative aspect-square overflow-hidden bg-muted">
+    <div className="group relative bg-card rounded-lg border border-border/80 overflow-hidden hover:shadow-lg transition-all duration-300 animate-fade-in" style={{ animationDelay: `${index * 50}ms` }}>
+      <div className="relative aspect-square overflow-hidden">
         {displayImage ? (
           <img 
             src={displayImage} 
             alt={name}
-            className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110"
+            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
           />
         ) : (
           <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-muted to-secondary">
-            <span className="font-display text-4xl text-muted-foreground/30">R</span>
+            <Crown className="w-8 h-8 text-muted-foreground/50" />
           </div>
         )}
 
-        {/* Overlay */}
-        <div className="absolute inset-0 bg-gradient-to-t from-background/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
-
         {/* Badges */}
-        <div className="absolute top-3 left-3 flex flex-col gap-2">
+        <div className="absolute top-2 left-2 flex flex-col gap-1">
           {discount_percentage > 0 && (
-            <span className="px-3 py-1 rounded-full text-xs font-bold gradient-gold text-primary-foreground">
+            <span className="px-2 py-1 rounded-full text-xs font-bold gradient-gold text-primary-foreground">
               -{discount_percentage}%
             </span>
           )}
           {isSoldOut && (
-            <span className="px-3 py-1 rounded-full text-xs font-bold bg-destructive text-destructive-foreground">
+            <span className="px-2 py-1 rounded-full text-xs font-bold bg-destructive text-destructive-foreground">
               Sold Out
             </span>
           )}
           {isLowStock && !isSoldOut && (
-            <span className="px-3 py-1 rounded-full text-xs font-bold bg-yellow-500 text-yellow-950">
+            <span className="px-2 py-1 rounded-full text-xs font-bold bg-yellow-500 text-yellow-950">
               Low Stock
             </span>
           )}
@@ -104,52 +124,60 @@ export function ProductCard({
 
         {/* Quick Actions */}
         <div className={cn(
-          "absolute bottom-3 right-3 flex gap-2",
+          "absolute bottom-2 right-2 flex gap-1",
           "transform translate-y-4 opacity-0 group-hover:translate-y-0 group-hover:opacity-100",
           "transition-all duration-300"
         )}>
           <Link to={`/product/${id}`}>
-            <Button size="icon" variant="secondary" className="rounded-full">
-              <Eye className="w-4 h-4" />
+            <Button size="icon" variant="secondary" className="rounded-full w-8 h-8">
+              <Eye className="w-3 h-3" />
             </Button>
           </Link>
           <Button 
             size="icon" 
+            variant="secondary" 
+            className="rounded-full w-8 h-8"
+            onClick={handleShare}
+          >
+            <Share2 className="w-3 h-3" />
+          </Button>
+          <Button 
+            size="icon" 
             variant="royal" 
-            className="rounded-full"
+            className="rounded-full w-8 h-8"
             onClick={handleAddToCart}
             disabled={isSoldOut}
           >
-            <ShoppingBag className="w-4 h-4" />
+            <ShoppingBag className="w-3 h-3" />
           </Button>
         </div>
       </div>
 
       {/* Content */}
-      <Link to={`/product/${id}`} className="block p-4">
-        <h3 className="font-display text-lg font-semibold text-foreground line-clamp-2 group-hover:text-primary transition-colors">
+      <Link to={`/product/${id}`} className="block p-3">
+        <h3 className="font-display text-sm font-semibold text-foreground line-clamp-2 group-hover:text-primary transition-colors">
           {name}
         </h3>
         
-        <div className="mt-2 flex items-center gap-3">
+        <div className="mt-1 flex items-center gap-2">
           {discount_percentage > 0 ? (
             <>
-              <span className="font-display text-xl font-bold text-primary">
+              <span className="font-display text-base font-bold text-primary">
                 ₹{discountedPrice.toFixed(2)}
               </span>
-              <span className="text-sm text-muted-foreground line-through">
+              <span className="text-xs text-muted-foreground line-through">
                 ₹{price.toFixed(2)}
               </span>
             </>
           ) : (
-            <span className="font-display text-xl font-bold text-primary">
+            <span className="font-display text-base font-bold text-primary">
               ₹{price.toFixed(2)}
             </span>
           )}
         </div>
 
         {/* Stock indicator */}
-        <div className="mt-3 flex items-center gap-2">
+        <div className="mt-2 flex items-center gap-1">
           <div className={cn(
             "w-2 h-2 rounded-full",
             isSoldOut ? "bg-destructive" : isLowStock ? "bg-yellow-500" : "bg-green-500"

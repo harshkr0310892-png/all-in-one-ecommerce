@@ -1,13 +1,16 @@
 import { Layout } from "@/components/layout/Layout";
 import { ProductCard } from "@/components/products/ProductCard";
+import { FilterMenu } from "@/components/products/FilterMenu";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Crown } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 
 type FilterType = 'all' | 'in_stock' | 'on_sale';
+type SortType = 'name' | 'price_low' | 'price_high';
 
 interface Category {
   id: string;
@@ -17,6 +20,11 @@ interface Category {
 export default function Products() {
   const [filter, setFilter] = useState<FilterType>('all');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
+  const [sortBy, setSortBy] = useState<SortType>('name');
+  const [minPrice, setMinPrice] = useState<number | ''>('');
+  const [maxPrice, setMaxPrice] = useState<number | ''>('');
+  const [currentPage, setCurrentPage] = useState(1);
+  const productsPerPage = 8;
 
   const { data: categories } = useQuery({
     queryKey: ['categories'],
@@ -53,8 +61,100 @@ export default function Products() {
     // Stock/Sale filter
     if (filter === 'in_stock') return product.stock_status === 'in_stock';
     if (filter === 'on_sale') return (product.discount_percentage || 0) > 0;
+    
+    // Price range filter
+    const productPrice = Number(product.price);
+    if (minPrice !== '' && productPrice < minPrice) return false;
+    if (maxPrice !== '' && productPrice > maxPrice) return false;
+    
     return true;
+  }).sort((a, b) => {
+    // Sorting
+    switch (sortBy) {
+      case 'price_low':
+        return Number(a.price) - Number(b.price);
+      case 'price_high':
+        return Number(b.price) - Number(a.price);
+      case 'name':
+      default:
+        return a.name.localeCompare(b.name);
+    }
   });
+
+  // Pagination logic
+  const totalPages = filteredProducts ? Math.ceil(filteredProducts.length / productsPerPage) : 0;
+  const startIndex = (currentPage - 1) * productsPerPage;
+  const paginatedProducts = filteredProducts?.slice(startIndex, startIndex + productsPerPage);
+
+  const handlePageChange = (page: number) => {
+    setCurrentPage(page);
+    // Scroll to top of product grid
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const renderPagination = () => {
+    if (totalPages <= 1) return null;
+    
+    const maxVisiblePages = 5;
+    let startPage = Math.max(1, currentPage - Math.floor(maxVisiblePages / 2));
+    let endPage = startPage + maxVisiblePages - 1;
+    
+    if (endPage > totalPages) {
+      endPage = totalPages;
+      startPage = Math.max(1, endPage - maxVisiblePages + 1);
+    }
+    
+    return (
+      <div className="flex items-center justify-center gap-2 mt-8">
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => handlePageChange(currentPage - 1)}
+          disabled={currentPage === 1}
+        >
+          <ChevronLeft className="w-4 h-4" />
+        </Button>
+        
+        {startPage > 1 && (
+          <>
+            <Button variant="outline" size="sm" onClick={() => handlePageChange(1)}>
+              1
+            </Button>
+            {startPage > 2 && <span className="px-2">...</span>}
+          </>
+        )}
+        
+        {Array.from({ length: endPage - startPage + 1 }, (_, i) => startPage + i).map((page) => (
+          <Button
+            key={page}
+            variant={currentPage === page ? "default" : "outline"}
+            size="sm"
+            onClick={() => handlePageChange(page)}
+          >
+            {page}
+          </Button>
+        ))}
+        
+        {endPage < totalPages && (
+          <>
+            {endPage < totalPages - 1 && <span className="px-2">...</span>}
+            <Button variant="outline" size="sm" onClick={() => handlePageChange(totalPages)}>
+              {totalPages}
+            </Button>
+          </>
+        )}
+        
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => handlePageChange(currentPage + 1)}
+          disabled={currentPage === totalPages}
+        >
+          <ChevronRight className="w-4 h-4" />
+        </Button>
+      </div>
+    );
+  };
 
   return (
     <Layout>
@@ -69,79 +169,51 @@ export default function Products() {
           </p>
         </div>
 
-        {/* Category Filter */}
-        <div className="flex flex-wrap justify-center gap-2 mb-4">
-          <Button
-            variant={selectedCategory === 'all' ? 'royal' : 'royalOutline'}
-            size="sm"
-            onClick={() => setSelectedCategory('all')}
-          >
-            All Categories
-          </Button>
-          {categories?.map((category) => (
-            <Button
-              key={category.id}
-              variant={selectedCategory === category.id ? 'royal' : 'royalOutline'}
-              size="sm"
-              onClick={() => setSelectedCategory(category.id)}
-            >
-              {category.name}
-            </Button>
-          ))}
-        </div>
-
-        {/* Stock/Sale Filters */}
-        <div className="flex flex-wrap justify-center gap-3 mb-10">
-          <Button
-            variant={filter === 'all' ? 'default' : 'outline'}
-            size="sm"
-            onClick={() => setFilter('all')}
-          >
-            All Products
-          </Button>
-          <Button
-            variant={filter === 'in_stock' ? 'default' : 'outline'}
-            size="sm"
-            onClick={() => setFilter('in_stock')}
-          >
-            In Stock
-          </Button>
-          <Button
-            variant={filter === 'on_sale' ? 'default' : 'outline'}
-            size="sm"
-            onClick={() => setFilter('on_sale')}
-          >
-            On Sale
-          </Button>
-        </div>
+        {/* Filter Menu */}
+        <FilterMenu 
+          categories={categories}
+          selectedCategory={selectedCategory}
+          setSelectedCategory={setSelectedCategory}
+          filter={filter}
+          setFilter={setFilter}
+          sortBy={sortBy}
+          setSortBy={setSortBy}
+          minPrice={minPrice}
+          setMinPrice={setMinPrice}
+          maxPrice={maxPrice}
+          setMaxPrice={setMaxPrice}
+        />
 
         {/* Products Grid */}
         {isLoading ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-            {[...Array(8)].map((_, i) => (
-              <div key={i} className="space-y-4">
-                <Skeleton className="aspect-square rounded-xl" />
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+            {[...Array(10)].map((_, i) => (
+              <div key={i} className="space-y-3">
+                <Skeleton className="aspect-square rounded-lg" />
                 <Skeleton className="h-4 w-3/4" />
                 <Skeleton className="h-4 w-1/2" />
               </div>
             ))}
           </div>
-        ) : filteredProducts && filteredProducts.length > 0 ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-            {filteredProducts.map((product, index) => (
-              <ProductCard
-                key={product.id}
-                id={product.id}
-                name={product.name}
-                price={Number(product.price)}
-                discount_percentage={product.discount_percentage || 0}
-                image_url={product.image_url}
-                cash_on_delivery={product.cash_on_delivery}
-                stock_status={product.stock_status}
-                index={index}
-              />
-            ))}
-          </div>
+        ) : paginatedProducts && paginatedProducts.length > 0 ? (
+          <>
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+              {paginatedProducts.map((product, index) => (
+                <ProductCard
+                  key={product.id}
+                  id={product.id}
+                  name={product.name}
+                  price={Number(product.price)}
+                  discount_percentage={product.discount_percentage || 0}
+                  image_url={product.image_url}
+                  cash_on_delivery={(product as any).cash_on_delivery}
+                  stock_status={product.stock_status}
+                  index={index}
+                />
+              ))}
+            </div>
+            {renderPagination()}
+          </>
         ) : (
           <div className="text-center py-20 bg-card rounded-xl border border-border/50">
             <Crown className="w-20 h-20 text-primary/30 mx-auto mb-4" />
@@ -149,7 +221,7 @@ export default function Products() {
               No products found
             </h3>
             <p className="text-muted-foreground">
-              {filter !== 'all' || selectedCategory !== 'all'
+              {filter !== 'all' || selectedCategory !== 'all' || minPrice !== '' || maxPrice !== ''
                 ? 'Try adjusting your filters or check back later.' 
                 : 'Check back soon for our royal collection!'}
             </p>
